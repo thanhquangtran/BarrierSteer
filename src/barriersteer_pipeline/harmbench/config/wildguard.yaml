@@ -1,0 +1,493 @@
+
+# WildGuard Pipeline Configuration
+pipeline:
+  name: "harmbench_wildguard"
+  output_dir: "outputs/wildguard"
+  harmbench_path: "${WORKSPACE_ROOT}/HarmBench"
+  barriersteer_path: "${WORKSPACE_ROOT}"
+  # HarmBench run_pipeline.py settings
+  base_save_dir: "results_wildguard"
+  base_log_dir: "./slurm_logs"
+  cls_path: "cais/HarmBench-Llama-2-13b-cls"
+  starting_batch_size: 256
+  vllm_gpu_memory_utilization: 0.7
+  vllm_enforce_eager: true
+  vllm_max_num_seqs: 64
+
+# Slurm Configuration (Required by pipeline)
+slurm:
+  partition: "hopper-cpu"
+  job_timeout_minutes: 240
+  check_interval_seconds: 60
+
+# Attack Generation (Stage 1) - Override behaviors
+attack_generation:
+  behavior_dataset: "data/behavior_datasets/harmbench_behaviors_wildguard_val.csv"
+  overwrite: true 
+  execution_mode: "local"
+
+# Hidden State Extraction (Stage 2)
+hidden_state_extraction:
+  execution_mode: "local_parallel"
+  training_behavior_dataset: "data/behavior_datasets/harmbench_behaviors_wildguard_train.csv"
+  test_cases_path: "results_wildguard/DirectRequest/default/test_cases/test_cases_train.json"
+  # Split output into per-category train files
+  split_by_category: true
+  behaviors_path: "data/behavior_datasets/harmbench_behaviors_wildguard_train.csv"
+  category_column: "SemanticCategory"
+  overwrite: true
+
+# Global Polytope Training Configuration
+polytope_training:
+  execution_mode: "local_parallel"
+  per_category_training: false
+  # Optional: List specific categories to train. If omitted, trains all found categories.
+  # target_categories: 
+  #   - "cyberattack"
+  #   - "private_information_individual"
+  #   - "toxic_language_hate_speech"
+  #   - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+  #   - "sexual_content"
+  #   - "mental_health_over-reliance_crisis"
+  #   - "copyright_violations"
+  #   - "others"
+  #   - "fraud_assisting_illegal_activities"
+  #   - "defamation_encouraging_unethical_or_unsafe_actions"
+  #   - "sensitive_information_organization_government"
+  #   - "causing_material_harm_by_disseminating_misinformation"
+  #   - "violence_and_physical_harm"
+  #   - "social_stereotypes_and_unfair_discrimination"
+  dataset:
+    use_category_data: true
+    # attack_methods: ["DirectRequest"] # Removed in favor of use_category_data 
+    num_epochs: 10
+    batch_size: 32
+    num_phi: 20
+  # Standard Hyperparams
+  feature_dim: 16384
+  entropy_weight: 1.0
+  lambda_constraint: 1.0
+  margin: 60.0
+  unsafe_weight: 2.0
+  phi_l1_weight: 0.0001
+  use_nonlinear: true
+  learning_rate: 0.01
+  seed: 43
+
+# Steering Evaluation Configuration
+steering_evaluation:
+  execution_mode: "local_parallel"
+  part_size: 140
+
+evaluation:
+  behavior_dataset: "data/behavior_datasets/harmbench_behaviors_wildguard_val.csv"
+
+# Models to test
+models:
+  - name: "qwen_1.5b"
+    path: "Qwen/Qwen2-1.5B-Instruct"
+    hidden_state_layer: 20
+    hidden_state_extraction:
+      hs_save_dir: "hs_data/wildguard/qwen_1.5b"
+    polytope_training:
+      base_output_dir: "outputs/wildguard/qwen_1.5b/"
+      dataset:
+        hidden_states_path: "hs_data/wildguard/qwen_1.5b"
+      margin: 30.0
+      modes:
+        cbf_per_category:
+          base_exp_ident_suffix: "cbf_per_category"
+          num_phi: [1]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: "separate_networks"
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          neural_phi_final_activation: null
+          phi_l1_weight: 1.0
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 1.0
+          per_category_training: true
+          use_category_data: true
+          category_types_to_train:
+            - "cyberattack"
+            - "private_information_individual"
+            - "toxic_language_hate_speech"
+            - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+            - "sexual_content"
+            - "mental_health_over-reliance_crisis"
+            - "copyright_violations"
+            - "others"
+            - "fraud_assisting_illegal_activities"
+            - "defamation_encouraging_unethical_or_unsafe_actions"
+            - "sensitive_information_organization_government"
+            - "causing_material_harm_by_disseminating_misinformation"
+            - "violence_and_physical_harm"
+            - "social_stereotypes_and_unfair_discrimination"
+    attack_methods: ["DirectRequest"]
+    steering:
+      evaluation_methods: ["DirectRequest"]
+      
+      # Shared CBF Configuration (Propagates to all modes unless overridden)
+      cbf:
+        use: true
+        mode: "estimated"
+        dt: 1.0
+        k: 1.0
+        kappa: 10.0
+        max_constraints: 2
+        constraint_mode: "topk"
+        control_radius: 10000.0
+
+      modes:
+        base_model:
+          base_exp_ident_suffix: "base_model"
+          polytope_model_path: ""
+          cbf: null  # Explicitly disable CBF for base model to avoid inheritance
+
+        cbf_multi_merge_steps5:
+          base_exp_ident_suffix: "cbf_multi_merge_steps5"
+          num_phi: [1]  # Must match training
+          polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            kappa: 10.0
+            max_constraints: 0  # 0 means no top-k cap; merge all category constraints
+            constraint_mode: "merge"
+            control_radius: 10000.0
+            num_steps: 5
+            multi_cbf:
+              enabled: true
+              training_mode: "cbf_per_category"
+              models_dir: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+              load_attacks:
+                - "cyberattack"
+                - "private_information_individual"
+                - "toxic_language_hate_speech"
+                - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+                - "sexual_content"
+                - "mental_health_over-reliance_crisis"
+                - "copyright_violations"
+                - "others"
+                - "fraud_assisting_illegal_activities"
+                - "defamation_encouraging_unethical_or_unsafe_actions"
+                - "sensitive_information_organization_government"
+                - "causing_material_harm_by_disseminating_misinformation"
+                - "violence_and_physical_harm"
+                - "social_stereotypes_and_unfair_discrimination"
+
+        # cbf_multi_topk:
+        #   base_exp_ident_suffix: "cbf_multi_topk"
+        #   num_phi: [1]  # Must match training
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #   cbf:
+        #     # Must repeat shared settings because mode config overrides global config (no merge)
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 1.0
+        #     kappa: 10.0
+        #     max_constraints: 2
+        #     constraint_mode: "topk"
+        #     control_radius: 10000.0
+            
+        #     multi_cbf:
+        #       enabled: true
+        #       training_mode: "cbf_per_category"
+        #       models_dir: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #       # Load all 14 categories
+        #       load_attacks: 
+        #         - "cyberattack"
+        #         - "private_information_individual"
+        #         - "toxic_language_hate_speech"
+        #         - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+        #         - "sexual_content"
+        #         - "mental_health_over-reliance_crisis"
+        #         - "copyright_violations"
+        #         - "others"
+        #         - "fraud_assisting_illegal_activities"
+        #         - "defamation_encouraging_unethical_or_unsafe_actions"
+        #         - "sensitive_information_organization_government"
+        #         - "causing_material_harm_by_disseminating_misinformation"
+        #         - "violence_and_physical_harm"
+        #         - "social_stereotypes_and_unfair_discrimination"
+          
+        # cbf_multi_merge:
+        #   base_exp_ident_suffix: "cbf_multi_merge"
+        #   num_phi: [1]  # Must match training
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #   cbf:
+        #     # Must repeat shared settings because mode config overrides global config (no merge)
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 1.0
+        #     kappa: 10.0
+        #     max_constraints: 10000
+        #     constraint_mode: "merge"
+        #     control_radius: 10000.0
+            
+        #     multi_cbf:
+        #       enabled: true
+        #       training_mode: "cbf_per_category"
+        #       models_dir: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #       # Load all 14 categories
+        #       load_attacks: 
+        #         - "cyberattack"
+        #         - "private_information_individual"
+        #         - "toxic_language_hate_speech"
+        #         - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+        #         - "sexual_content"
+        #         - "mental_health_over-reliance_crisis"
+        #         - "copyright_violations"
+        #         - "others"
+        #         - "fraud_assisting_illegal_activities"
+        #         - "defamation_encouraging_unethical_or_unsafe_actions"
+        #         - "sensitive_information_organization_government"
+        #         - "causing_material_harm_by_disseminating_misinformation"
+        #         - "violence_and_physical_harm"
+        #         - "social_stereotypes_and_unfair_discrimination"
+
+        # cbf_multi_qp:
+        #   base_exp_ident_suffix: "cbf_multi_qp"
+        #   num_phi: [1]  # Must match training
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #   cbf:
+        #     # Must repeat shared settings because mode config overrides global config (no merge)
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 1.0
+        #     kappa: 10.0
+        #     max_constraints: 10000
+        #     constraint_mode: "qp"
+        #     control_radius: 10000.0
+            
+        #     multi_cbf:
+        #       enabled: true
+        #       training_mode: "cbf_per_category"
+        #       models_dir: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001"
+        #       # Load all 14 categories
+        #       load_attacks: 
+        #         - "cyberattack"
+        #         - "private_information_individual"
+        #         - "toxic_language_hate_speech"
+        #         - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+        #         - "sexual_content"
+        #         - "mental_health_over-reliance_crisis"
+        #         - "copyright_violations"
+        #         - "others"
+        #         - "fraud_assisting_illegal_activities"
+        #         - "defamation_encouraging_unethical_or_unsafe_actions"
+        #         - "sensitive_information_organization_government"
+        #         - "causing_material_harm_by_disseminating_misinformation"
+        #         - "violence_and_physical_harm"
+        #         - "social_stereotypes_and_unfair_discrimination"
+
+        # # Individual Per-Category Evaluation Modes
+        # # Only enabling modes for which weights exist (8 categories found)
+        
+        # cbf_cyberattack:
+        #   base_exp_ident_suffix: "cbf_cyberattack"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_cyberattack.pth"
+        
+        # cbf_private_info:
+        #   base_exp_ident_suffix: "cbf_private_info"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_private_information_individual.pth"
+
+        # cbf_toxic:
+        #   base_exp_ident_suffix: "cbf_toxic"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_toxic_language_hate_speech.pth"
+
+        # cbf_disinfo:
+        #   base_exp_ident_suffix: "cbf_disinfo"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_disseminating_false_or_misleading_information_encouraging_disinformation_campaigns.pth"
+
+        # cbf_sexual:
+        #   base_exp_ident_suffix: "cbf_sexual"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_sexual_content.pth"
+
+        # cbf_mental_health:
+        #   base_exp_ident_suffix: "cbf_mental_health"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_mental_health_over-reliance_crisis.pth"
+
+        # cbf_copyright:
+        #   base_exp_ident_suffix: "cbf_copyright"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_copyright_violations.pth"
+
+        # cbf_others:
+        #   base_exp_ident_suffix: "cbf_others"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_others.pth"
+
+        # # Note: Weights for these categories were not found in the directory.
+        # # Uncomment if you have trained them.
+        
+        # cbf_fraud:
+        #   base_exp_ident_suffix: "cbf_fraud"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_fraud_assisting_illegal_activities.pth"
+
+        # cbf_defamation:
+        #   base_exp_ident_suffix: "cbf_defamation"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_defamation_encouraging_unethical_or_unsafe_actions.pth"
+
+        # cbf_sensitive_info:
+        #   base_exp_ident_suffix: "cbf_sensitive_info"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_sensitive_information_organization_government.pth"
+
+        # cbf_harm_dissemination:
+        #   base_exp_ident_suffix: "cbf_harm_dissemination"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_causing_material_harm_by_disseminating_misinformation.pth"
+
+        # cbf_violence:
+        #   base_exp_ident_suffix: "cbf_violence"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_violence_and_physical_harm.pth"
+
+        # cbf_discrimination:
+        #   base_exp_ident_suffix: "cbf_discrimination"
+        #   num_phi: [1]
+        #   polytope_model_path: "outputs/wildguard/qwen_1.5b/cbf_per_category_phi001/weight_42_social_stereotypes_and_unfair_discrimination.pth"
+      generation_seed: 44
+  - name: "lfm_1.2b"
+    path: "LiquidAI/LFM2.5-1.2B-Instruct"
+    hidden_state_layer: 12  # LFM has 16 layers total (10 LIV conv + 6 GQA), so ~75% depth
+    hidden_state_extraction:
+      hs_save_dir: "hs_data/wildguard/lfm_1.2b"
+    polytope_training:
+      base_output_dir: "outputs/wildguard/lfm_1.2b/"
+      dataset:
+        hidden_states_path: "hs_data/wildguard/lfm_1.2b"
+      margin: 30.0
+      modes:
+        cbf_per_category:
+          base_exp_ident_suffix: "cbf_per_category"
+          num_phi: [1]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: "separate_networks"
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          neural_phi_final_activation: null
+          phi_l1_weight: 1.0
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 1.0
+          per_category_training: true
+          use_category_data: true
+          category_types_to_train:
+            - "cyberattack"
+            - "private_information_individual"
+            - "toxic_language_hate_speech"
+            - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+            - "sexual_content"
+            - "mental_health_over-reliance_crisis"
+            - "copyright_violations"
+            - "others"
+            - "fraud_assisting_illegal_activities"
+            - "defamation_encouraging_unethical_or_unsafe_actions"
+            - "sensitive_information_organization_government"
+            - "causing_material_harm_by_disseminating_misinformation"
+            - "violence_and_physical_harm"
+            - "social_stereotypes_and_unfair_discrimination"
+    attack_methods: ["DirectRequest"]
+    steering:
+      evaluation_methods: ["DirectRequest"]
+      cbf:
+        use: true
+        mode: "estimated"
+        dt: 1.0
+        k: 1.0
+        kappa: 10.0
+        max_constraints: 2
+        constraint_mode: "topk"
+        control_radius: 10000.0
+      modes:
+        base_model:
+          base_exp_ident_suffix: "base_model"
+          polytope_model_path: ""
+          cbf: null
+      generation_seed: 45
+  - name: "phi_4"
+    path: "microsoft/phi-4"
+    hidden_state_layer: 30  # Phi-4 has 40 layers, so ~75% depth
+    hidden_state_extraction:
+      hs_save_dir: "hs_data/wildguard/phi_4"
+    polytope_training:
+      base_output_dir: "outputs/wildguard/phi_4/"
+      dataset:
+        hidden_states_path: "hs_data/wildguard/phi_4"
+      margin: 30.0
+      modes:
+        cbf_per_category:
+          base_exp_ident_suffix: "cbf_per_category"
+          num_phi: [1]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: "separate_networks"
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          neural_phi_final_activation: null
+          phi_l1_weight: 1.0
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 1.0
+          per_category_training: true
+          use_category_data: true
+          category_types_to_train:
+            - "cyberattack"
+            - "private_information_individual"
+            - "toxic_language_hate_speech"
+            - "disseminating_false_or_misleading_information_encouraging_disinformation_campaigns"
+            - "sexual_content"
+            - "mental_health_over-reliance_crisis"
+            - "copyright_violations"
+            - "others"
+            - "fraud_assisting_illegal_activities"
+            - "defamation_encouraging_unethical_or_unsafe_actions"
+            - "sensitive_information_organization_government"
+            - "causing_material_harm_by_disseminating_misinformation"
+            - "violence_and_physical_harm"
+            - "social_stereotypes_and_unfair_discrimination"
+    attack_methods: ["DirectRequest"]
+    steering:
+      evaluation_methods: ["DirectRequest"]
+      cbf:
+        use: true
+        mode: "estimated"
+        dt: 1.0
+        k: 1.0
+        kappa: 10.0
+        max_constraints: 2
+        constraint_mode: "topk"
+        control_radius: 10000.0
+      modes:
+        base_model:
+          base_exp_ident_suffix: "base_model"
+          polytope_model_path: ""
+          cbf: null
+      generation_seed: 46

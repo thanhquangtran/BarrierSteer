@@ -1,0 +1,394 @@
+baichuan2_13b:
+  model:
+    chat_template: baichuan2
+    dtype: bfloat16
+    model_name_or_path: baichuan-inc/Baichuan2-13B-Chat
+    trust_remote_code: true
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+baichuan2_7b:
+  model:
+    chat_template: baichuan2
+    dtype: bfloat16
+    model_name_or_path: baichuan-inc/Baichuan2-7B-Chat
+    trust_remote_code: true
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+claude-2:
+  model:
+    model_name_or_path: claude-2
+    token: <your_anthropic_token>
+  model_type: closed_source
+claude-2.1:
+  model:
+    model_name_or_path: claude-2.1
+    token: <your_anthropic_token>
+  model_type: closed_source
+claude-instant-1:
+  model:
+    model_name_or_path: claude-instant-1
+    token: <your_anthropic_token>
+  model_type: closed_source
+defense_llama2_7b:
+  model:
+    chat_template: llama-2
+    dtype: float16
+    model_name_or_path: llama-2-7b
+  model_type: open_source
+  num_gpus: 1
+defense_mistral_8b:
+  model:
+    chat_template: mistral
+    dtype: bfloat16
+    model_name_or_path: ministral-8b
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+defense_qwen_1.5b:
+  model:
+    chat_template: qwen
+    dtype: bfloat16
+    model_name_or_path: qwen2-1.5b
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+gemini:
+  model:
+    model_name_or_path: gemini-pro
+    token: <your_google_ai_studio_token>
+  model_type: closed_source
+gemma_2_9b:
+  model:
+    chat_template: gemma
+    dtype: bfloat16
+    model_name_or_path: google/gemma-2-9b-it
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+gpt-3.5-turbo-0613:
+  model:
+    model_name_or_path: gpt-3.5-turbo-0613
+    token: <your_openai_token>
+  model_type: closed_source
+gpt-3.5-turbo-1106:
+  model:
+    model_name_or_path: gpt-3.5-turbo-1106
+    token: <your_openai_token>
+  model_type: closed_source
+gpt-4-0613:
+  model:
+    model_name_or_path: gpt-4-0613
+    token: <your_openai_token>
+  model_type: closed_source
+gpt-4-1106-preview:
+  model:
+    model_name_or_path: gpt-4-1106-preview
+    token: <your_openai_token>
+  model_type: closed_source
+gpt-4-vision-preview:
+  model:
+    model_name_or_path: gpt-4-vision-preview
+    token: <your_openai_token>
+  model_type: closed_source
+gpt4v:
+  model:
+    model_name_or_path: GPT4V
+  model_type: closed_source_multimodal
+instructblip:
+  model:
+    model_name_or_path: InstructBLIP
+  model_type: open_source_multimodal
+  num_gpus: 1
+koala_13b:
+  model:
+    chat_template: koala
+    dtype: bfloat16
+    model_name_or_path: TheBloke/koala-13B-HF
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+koala_7b:
+  model:
+    chat_template: koala
+    dtype: bfloat16
+    model_name_or_path: TheBloke/koala-7B-HF
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+lfm_1.2b:
+  model:
+    dtype: bfloat16
+    model_name_or_path: LiquidAI/LFM2.5-1.2B-Instruct
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+llama2_13b:
+  model:
+    chat_template: llama-2
+    dtype: float16
+    model_name_or_path: meta-llama/Llama-2-13b-chat-hf
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+llama2_70b:
+  model:
+    chat_template: llama-2
+    dtype: float16
+    model_name_or_path: meta-llama/Llama-2-70b-chat-hf
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 2
+llama2_7b:
+  model:
+    chat_template: llama-2
+    dtype: float16
+    model_name_or_path: meta-llama/Llama-2-7b-chat-hf
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+llava_v1_5:
+  model:
+    model_name_or_path: LLaVA_v1_5
+  model_type: open_source_multimodal
+  num_gpus: 1
+mistral-medium:
+  mode:
+    model_name_or_path: mistral-medium
+    token: <your_mistral_token>
+  model_type: closed_source
+mistral_7b_v2:
+  model:
+    chat_template: mistral
+    dtype: bfloat16
+    model_name_or_path: mistralai/Mistral-7B-Instruct-v0.2
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+mistral_8b:
+  model:
+    chat_template: mistral
+    dtype: bfloat16
+    model_name_or_path: mistralai/Ministral-8B-Instruct-2410
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+mixtral_8x7b:
+  model:
+    chat_template: mistral
+    dtype: bfloat16
+    model_name_or_path: mistralai/Mixtral-8x7B-Instruct-v0.1
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 2
+openchat_3_5_1210:
+  model:
+    dtype: bfloat16
+    model_name_or_path: openchat/openchat-3.5-1210
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+orca_2_13b:
+  model:
+    chat_template: orca-2
+    dtype: bfloat16
+    model_name_or_path: microsoft/Orca-2-13b
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+orca_2_7b:
+  model:
+    chat_template: orca-2
+    dtype: bfloat16
+    model_name_or_path: microsoft/Orca-2-7b
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+phi_4:
+  model:
+    dtype: bfloat16
+    model_name_or_path: microsoft/phi-4
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+qwen_1.5b:
+  model:
+    chat_template: qwen
+    dtype: bfloat16
+    eos_token: <|im_end|>
+    model_name_or_path: Qwen/Qwen2-1.5B-Instruct
+    pad_token: <|extra_0|>
+    trust_remote_code: true
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+qwen_14b_chat:
+  model:
+    chat_template: qwen
+    dtype: bfloat16
+    eos_token: <|im_end|>
+    model_name_or_path: Qwen/Qwen-14B-Chat
+    pad_token: <|extra_0|>
+    trust_remote_code: true
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+qwen_72b_chat:
+  model:
+    chat_template: qwen
+    dtype: bfloat16
+    eos_token: <|im_end|>
+    model_name_or_path: Qwen/Qwen-72B-Chat
+    pad_token: <|extra_0|>
+    trust_remote_code: true
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 4
+qwen_7b_chat:
+  model:
+    chat_template: qwen
+    dtype: bfloat16
+    eos_token: <|im_end|>
+    model_name_or_path: Qwen/Qwen-7B-Chat
+    pad_token: <|extra_0|>
+    trust_remote_code: true
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+qwen_vl_chat:
+  model:
+    model_name_or_path: Qwen_VL_Chat
+  model_type: open_source_multimodal
+  num_gpus: 1
+safe_gemma_2_9b:
+  model:
+    cbf_constraint_mode: merge
+    cbf_control_radius: 100000.0
+    cbf_dt: 1.0
+    cbf_k: 0.001
+    cbf_kappa: 100.0
+    cbf_max_constraints: 2
+    cbf_mode: estimated
+    cbf_p: 10.0
+    cbf_w: 1.0
+    chat_template: gemma
+    dtype: bfloat16
+    model_name_or_path: google/gemma-2-9b-it
+    polytope_weight_path: outputs/harmbench/gemma_2_9b/cbf_topk_nonlinear_phi004/weight_44.pth
+    pretrained_model_name_or_path: google/gemma-2-9b-it
+    seed: 44
+    use_cbf: true
+    use_fast_tokenizer: true
+  model_type: open_source
+  num_gpus: 1
+safe_llama2_7b:
+  model:
+    cbf_constraint_mode: merge
+    cbf_control_radius: 100000.0
+    cbf_dt: 1.0
+    cbf_k: 0.001
+    cbf_kappa: 100.0
+    cbf_max_constraints: 2
+    cbf_mode: estimated
+    cbf_p: 10.0
+    cbf_w: 1.0
+    chat_template: llama-2
+    dtype: float16
+    model_name_or_path: meta-llama/Llama-2-7b-chat-hf
+    multi_cbf_enabled: false
+    polytope_weight_path: outputs/harmbench/llama2_7b/cbf_topk_nonlinear_phi004/weight_44.pth
+    pretrained_model_name_or_path: meta-llama/Llama-2-7b-chat-hf
+    seed: 44
+    use_cbf: true
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+safe_mistral_8b:
+  model:
+    cbf_constraint_mode: merge
+    cbf_control_radius: 100000.0
+    cbf_dt: 1.0
+    cbf_k: 0.001
+    cbf_kappa: 100.0
+    cbf_max_constraints: 2
+    cbf_mode: estimated
+    cbf_p: 10.0
+    cbf_w: 1.0
+    chat_template: mistral
+    dtype: bfloat16
+    model_name_or_path: mistralai/Ministral-8B-Instruct-2410
+    polytope_weight_path: outputs/harmbench/mistral_8b/cbf_topk_nonlinear_phi004/weight_44.pth
+    pretrained_model_name_or_path: mistralai/Ministral-8B-Instruct-2410
+    seed: 44
+    use_cbf: true
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+safe_qwen_1.5b:
+  model:
+    cbf_constraint_mode: topk
+    cbf_control_radius: 100000.0
+    cbf_dt: 1.0
+    cbf_k: 0.3
+    cbf_kappa: 100.0
+    cbf_max_constraints: 2
+    cbf_mode: estimated
+    cbf_num_steps: 1
+    cbf_p: 10.0
+    cbf_w: 1.0
+    chat_template: qwen
+    dtype: bfloat16
+    model_name_or_path: Qwen/Qwen2-1.5B-Instruct
+    multi_cbf_enabled: false
+    polytope_weight_path: outputs/harmbench/qwen_1.5b/cbf_topk_nonlinear_phi004/weight_42.pth
+    pretrained_model_name_or_path: Qwen/Qwen2-1.5B-Instruct
+    seed: 42
+    use_cbf: true
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+solar_10_7b_instruct:
+  model:
+    dtype: float16
+    model_name_or_path: upstage/SOLAR-10.7B-Instruct-v1.0
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+starling_7b:
+  model:
+    dtype: bfloat16
+    model_name_or_path: berkeley-nest/Starling-LM-7B-alpha
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+vicuna_13b_v1_5:
+  model:
+    chat_template: vicuna
+    dtype: float16
+    model_name_or_path: lmsys/vicuna-13b-v1.5
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+vicuna_7b_v1_5:
+  model:
+    chat_template: vicuna
+    dtype: float16
+    model_name_or_path: lmsys/vicuna-7b-v1.5
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1
+zephyr_7b:
+  model:
+    dtype: bfloat16
+    model_name_or_path: HuggingFaceH4/zephyr-7b-beta
+    use_fast_tokenizer: false
+  model_type: open_source
+zephyr_7b_robust:
+  model:
+    chat_template: zephyr_7b_robust
+    dtype: bfloat16
+    model_name_or_path: cais/zephyr_7b_r2d2
+    use_fast_tokenizer: false
+  model_type: open_source
+  num_gpus: 1

@@ -1,0 +1,10 @@
+short_name: harmbench
+name_or_path: None
+subset: None
+split: DirectRequest
+dataset_type: single_input
+num_epochs: 40
+num_phi: 50
+trained_weights_path: None
+hidden_states_path: None
+attack_methods: null  # Optional: list of attack methods to filter training data

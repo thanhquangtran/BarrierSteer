@@ -1,0 +1,15 @@
+short_name: beaver_tails
+name_or_path: PKU-Alignment/BeaverTails
+subset: None
+split: 330k_train
+dataset_type: prompt_response
+category: None
+num_epochs: 20
+num_phi: 14
+num_categories: 14
+trained_weights_path: None
+hidden_states_path: None
+extra_data_path: None
+hs_base_path: None
+hs_filename: None
+hint_category: True

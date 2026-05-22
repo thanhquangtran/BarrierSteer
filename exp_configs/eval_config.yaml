@@ -1,0 +1,53 @@
+defaults:
+  - override hydra/launcher: submitit_slurm
+dataset: mmlu
+exp_ident: eval
+model_path: None
+use_safe_rep_model: false
+# Defense configuration
+use_defense: false
+defense_method: backtranslation  # Options: response_check, smoothllm, ICL, self_reminder
+# MMLU evaluation parameters
+ntrain: 5
+data_dir: None
+polytope_weight_path: None
+projection: False
+use_backup_response: False
+steer_layer: 20
+lambda_weight: 1.0
+steer_first_n_tokens: 20
+safe_violation_weight: 0.0001
+# CBF Configuration
+use_cbf: False
+cbf_mode: "estimated"
+cbf_dt: 1.0
+cbf_k: 1.0
+cbf_max_constraints: 2
+cbf_constraint_mode: "topk"
+cbf_kappa: 10.0
+cbf_w: 1.0
+cbf_p: 10.0
+
+max_input_length: 2048
+max_new_tokens: 256
+top_p: 0.95
+temperature: 0.8
+
+hydra:
+  run:
+    dir: outputs/${dataset}/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  job:
+    chdir: True
+  sweep:
+    dir: multirun/${dataset}/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  launcher:
+    submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+    timeout_min: 1440
+    cpus_per_task: 1
+    tasks_per_node: 1
+    nodes: 1
+    name: ${exp_ident}
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    additional_parameters: {"gpus": "a100_80gb:1"}
+    setup:
+      - '#SBATCH --requeue'

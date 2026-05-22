@@ -1,0 +1,37 @@
+[flake8]
+max-line-length = 120
+extend-ignore =
+    # Black-compatible whitespace and line wrapping.
+    E203,
+    E501,
+    W503,
+    # Research scripts intentionally adjust sys.path before local imports.
+    E402,
+    # Tests use lambdas for compact synthetic dynamics.
+    E731,
+    # Legacy research scripts contain non-critical cleanup/style debt.
+    E111,
+    E114,
+    E117,
+    E261,
+    E303,
+    E722,
+    W291,
+    W293,
+    W391,
+    W605,
+    F401,
+    F541,
+    F811,
+    F824,
+    F841
+exclude =
+    .git,
+    .venv,
+    build,
+    dist,
+    outputs,
+    logs,
+    HarmBench,
+    third_party,
+    external_code

@@ -1,0 +1,1430 @@
+# HarmBench Pipeline Configuration
+pipeline:
+  name: "harmbench_experiment"
+  output_dir: "./outputs/harmbench_experiments"
+  harmbench_path: "${WORKSPACE_ROOT}/HarmBench"
+  barriersteer_path: "${WORKSPACE_ROOT}"
+  # HarmBench run_pipeline.py settings
+  base_save_dir: "./results"
+  base_log_dir: "./slurm_logs"
+  cls_path: "cais/HarmBench-Llama-2-13b-cls"
+  starting_batch_size: 16  # Project default for Stage 4 generation; override only for measured memory constraints
+  vllm_gpu_memory_utilization: 0.7  # Use 70% of GPU memory
+  vllm_enforce_eager: true          # Disable CUDA graphs to save memory
+  vllm_max_num_seqs: 64             # Reduce concurrency
+  # Optional Stage 3/4 mode selection. Leave commented/empty to run every configured mode.
+  # These can also be supplied on the CLI with --mode-types and --modes.
+  # mode_types: ["circuit_breaker"]  # e.g. circuit_breaker, reft_r1, polytope, base_model, defense
+  # modes: ["circuit_breaker"]      # exact configured mode names
+
+# Models to test
+models:
+  - name: "llama2_7b"
+    path: "meta-llama/Llama-2-7b-chat-hf"
+    hidden_state_layer: 20
+    steering:
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: false
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 2
+            constraint_mode: "topk"
+        # Mode: CBF solved via QP.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 4
+            constraint_mode: "qp"
+        # Mode 4: Nonlinear CBF with merge strategy (only mode where kappa is used)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            kappa: 100.0          # kappa only matters when constraint_mode == "merge"
+            control_radius: 100000.0
+            constraint_mode: "merge"
+
+        # Base model (no polytope, no defense, no CBF - original model only)
+        # base_model:
+        #   base_exp_ident_suffix: "base_model"
+        #   polytope_model_path: ""  # Empty string means use base model without polytope
+        # defense_smoothllm:
+        #   base_exp_ident_suffix: "defense_smoothllm"
+        #   defense:
+        #     use: true
+        #     method: "smoothllm"
+        # ActAdd (Activation Addition) baseline - steer toward safety with x + α*r
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   steering_vector:
+        #     use: true
+        #     method: "actadd"
+        #     alpha: 1.0
+        # # DirAblate (Directional Ablation) baseline - project out harmful direction
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   steering_vector:
+        #     use: true
+        #     method: "dirablate"
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          steering_vector:
+            use: true
+            method: "actadd"
+            alpha: 1.0
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          steering_vector:
+            use: true
+            method: "dirablate"
+        circuit_breaker:
+          base_exp_ident_suffix: "circuit_breaker"
+          num_phi: [0]
+          circuit_breaker:
+            use: true
+            training_mode: "circuit_breaker"
+      generation_seed: [42, 43, 44]
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+    polytope_training:
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/llama2_7b"
+      dataset:
+        hidden_states_path: "hs_data/harmbench/llama2_7b"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        # Mode 1: SAP mode - nonlinear feature extractor without neural phi
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 60.0
+          unsafe_margin: 60.0
+          unsafe_weight: 2.0
+        # # Mode 2: CBF with nonlinear phi (neural network) - topk strategy
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 8.0
+          # neural_phi_final_activation: "tanh"
+        # Mode 3: CBF-QP (no top-k / merge) reusing the nonlinear CBF weights.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"
+
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"  # Reuse weights from this mode
+        
+        ### small CBF
+        # cbf_topk_nonlinear_small_test:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_small_test"
+        #   num_phi: [4]  # Ablation study: test multiple num_phi values
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [512, 256, 32, 16]
+        #   lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+        #   desc_loss_weight: 0.0      # Weight for L_desc term
+        #   control_radius: 10000.0         # R: max control magnitude
+        #   cbf_k: 1.0                  # k: CBF safety rate parameter
+        #   safe_margin: 0.0    # Target: b(x) >= safe_margin
+        #   unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+        #   unsafe_weight: 10.0
+        # # Mode 3: CBF-QP (no top-k / merge) reusing the nonlinear CBF weights.
+        # cbf_qp_nonlinear_small:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_small"
+        #   num_phi: [4]  # Ablation study
+        #   reuse_weights_from: "cbf_topk_nonlinear_small"
+          
+        # # # Mode 5: Nonlinear CBF with merge strategy (reuse weights from cbf_topk_nonlinear)
+        # cbf_merge_nonlinear_small:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_small"
+        #   num_phi: [4]  # Ablation study
+        #   reuse_weights_from: "cbf_topk_nonlinear_small"  # Reuse weights from this mode
+        
+        # # ActAdd (Activation Addition) baseline
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   model_type: "steering_vector"
+        #   steering_method: "actadd"
+        #   steering_alpha: 1.0
+        #   steering_normalize: false
+        # # DirAblate (Directional Ablation) baseline
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   model_type: "steering_vector"
+        #   steering_method: "dirablate"
+        #   steering_normalize: false
+
+        # Mode 6: Per-attack CBF training with descent loss
+        # cbf_per_attack:
+        #   base_exp_ident_suffix: "cbf_per_attack"
+        #   num_phi: [1]  # Single constraint per attack type
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [32]
+        #   neural_phi_final_activation: null  # Options: null, "tanh", "softsign"
+        #   lambda_constraint: 0.0
+        #   entropy_weight: 0.0  # No diversity needed for single constraint per attack
+        #   # Descent loss parameters
+        #   desc_loss_weight: 0.0      # Weight for L_desc term
+        #   control_radius: 10000.0         # R: max control magnitude
+        #   cbf_k: 1.0                  # k: CBF safety rate parameter
+        #   # Per-attack training configuration
+        #   per_attack_training: true
+        #   attack_types_to_train: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          model_type: "steering_vector"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          model_type: "steering_vector"
+          steering_method: "dirablate"
+          steering_normalize: false
+        circuit_breaker:
+          model_type: "circuit_breaker"
+          base_exp_ident_suffix: "circuit_breaker"
+          base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench_cb/llama2_7b"
+          behavior_dataset: "data/behavior_datasets/harmbench_behaviors_text_val.csv"
+          target_layers: "20"
+          transform_layers: "-1"
+          lorra_alpha: 10.0
+          lora_r: 16
+          lora_alpha: 16
+          lora_dropout: 0.05
+          learning_rate: 1e-4
+          weight_decay: 0.0
+          max_steps: 150
+          per_device_train_batch_size: 8
+          gradient_accumulation_steps: 1
+          schedule_steps: 300
+          max_length: 1024
+          bf16: true
+          gradient_checkpointing: true
+          val_fraction: 0.1
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+  - name: "mistral_8b"
+    path: "mistralai/Ministral-8B-Instruct-2410"
+    hidden_state_layer: 20
+    steering:
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: false
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.1
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 2
+            constraint_mode: "topk"
+        # Mode: CBF solved via QP.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.002
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 4
+            constraint_mode: "qp"
+        # Mode 4: Nonlinear CBF with merge strategy (only mode where kappa is used)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.002
+            kappa: 100.0          # kappa only matters when constraint_mode == "merge"
+            control_radius: 100000.0
+            constraint_mode: "merge"
+        # Base model (no polytope, no defense, no CBF - original model only)
+        # base_model:
+        #   base_exp_ident_suffix: "base_model"
+        #   polytope_model_path: ""  # Empty string means use base model without polytope
+        # defense_smoothllm:
+        #   base_exp_ident_suffix: "defense_smoothllm"
+        #   defense:
+        #     use: true
+        #     method: "smoothllm"
+        # ActAdd (Activation Addition) baseline - steer toward safety with x + α*r
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   steering_vector:
+        #     use: true
+        #     method: "actadd"
+        #     alpha: 1.0
+        # DirAblate (Directional Ablation) baseline - project out harmful direction
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   steering_vector:
+        #     use: true
+        #     method: "dirablate"
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          steering_vector:
+            use: true
+            method: "actadd"
+            alpha: 1.0
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          steering_vector:
+            use: true
+            method: "dirablate"
+        circuit_breaker:
+          base_exp_ident_suffix: "circuit_breaker"
+          num_phi: [0]
+          circuit_breaker:
+            use: true
+            training_mode: "circuit_breaker"
+      generation_seed: [42, 43, 44]
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+    polytope_training:
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/mistral_8b"
+      dataset:
+        hidden_states_path: "hs_data/harmbench/mistral_8b"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      margin: 5.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        # Mode 1: SAP mode - nonlinear feature extractor without neural phi
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 5.0
+          unsafe_margin: 5.0
+          unsafe_weight: 2.0
+        # # Mode 2: CBF with nonlinear phi (neural network) - topk strategy
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 2.0
+          # neural_phi_final_activation: "tanh"
+        # # Mode 3: CBF-QP (no top-k / merge) reusing the nonlinear CBF weights.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"
+        # # Mode 5: Nonlinear CBF with merge strategy (reuse weights from cbf_topk_nonlinear)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"  # Reuse weights from this mode
+        # ActAdd (Activation Addition) baseline
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   model_type: "steering_vector"
+        #   steering_method: "actadd"
+        #   steering_alpha: 1.0
+        #   steering_normalize: false
+        # DirAblate (Directional Ablation) baseline
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   model_type: "steering_vector"
+        #   steering_method: "dirablate"
+        #   steering_normalize: false
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          model_type: "steering_vector"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          model_type: "steering_vector"
+          steering_method: "dirablate"
+          steering_alpha: 1.0
+          steering_normalize: false
+
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          model_type: "polytope"
+          num_phi: [4]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 5.0
+
+        cast_actadd:
+          base_exp_ident_suffix: "cast_actadd"
+          model_type: "conditional_steering_vector"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+          reuse_steering_vector_from: "actadd"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+        cast_dirablate:
+          base_exp_ident_suffix: "cast_dirablate"
+          model_type: "conditional_steering_vector"
+          num_phi: [4]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 5.0
+          steering_method: "dirablate"
+          steering_alpha: 1.0
+          steering_normalize: false
+        circuit_breaker:
+          model_type: "circuit_breaker"
+          base_exp_ident_suffix: "circuit_breaker"
+          base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench_cb/mistral_8b"
+          behavior_dataset: "data/behavior_datasets/harmbench_behaviors_text_val.csv"
+          target_layers: "20"
+          transform_layers: "-1"
+          lorra_alpha: 10.0
+          lora_r: 16
+          lora_alpha: 16
+          lora_dropout: 0.05
+          learning_rate: 1e-4
+          weight_decay: 0.0
+          max_steps: 150
+          per_device_train_batch_size: 8
+          gradient_accumulation_steps: 1
+          schedule_steps: 300
+          max_length: 1024
+          bf16: true
+          gradient_checkpointing: true
+          val_fraction: 0.1
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+  - name: "qwen_1.5b"
+    path: "Qwen/Qwen2-1.5B-Instruct"
+    hidden_state_layer: 20
+    steering:
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: false
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 2
+            constraint_mode: "topk"
+        # Mode: CBF solved via QP.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 4
+            constraint_mode: "qp"
+        # Mode 4: Nonlinear CBF with merge strategy (only mode where kappa is used)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            kappa: 100.0          # kappa only matters when constraint_mode == "merge"
+            control_radius: 100000.0
+            constraint_mode: "merge"
+        # --- CBF Size Ablation Steering (smooth parameter ladder to 23.64M) ---
+        # S: [128] (~0.79M params)
+        
+        cbf_topk_nonlinear_s:
+          base_exp_ident_suffix: "cbf_topk_nonlinear_s"
+          # num_phi: [4, 12, 20, 28, 36, 44, 52, 60]
+          num_phi: [4]
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            control_radius: 100000.0
+            max_constraints: 2
+            constraint_mode: "topk"
+        # cbf_qp_nonlinear_s:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_s"
+        #   # num_phi: [4, 12, 20, 28, 36, 44, 52, 60]
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # cbf_merge_nonlinear_s:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_s"
+        #   # num_phi: [4, 12, 20, 28, 36, 44, 52, 60]
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     kappa: 100.0
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        # P1024: [1024] (~6.30M params)
+        # cbf_topk_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_p1024"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 2
+        #     constraint_mode: "topk"
+        # cbf_qp_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_p1024"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # cbf_merge_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_p1024"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     kappa: 100.0
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        # # P2048: [2048] (~12.60M params)
+        # cbf_topk_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_p2048"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 2
+        #     constraint_mode: "topk"
+        # cbf_qp_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_p2048"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # cbf_merge_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_p2048"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     kappa: 100.0
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        # # H1536: [1536, 768, 384, 192] (denser high-end ladder)
+        # cbf_topk_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_h1536"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 2
+        #     constraint_mode: "topk"
+        # cbf_qp_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_h1536"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # cbf_merge_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_h1536"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     kappa: 100.0
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        # # H1792: [1792, 896, 448, 224] (denser high-end ladder)
+        # cbf_topk_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_h1792"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 2
+        #     constraint_mode: "topk"
+        # cbf_qp_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_h1792"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     control_radius: 100000.0
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # cbf_merge_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_h1792"
+        #   num_phi: [4]
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 0.3
+        #     kappa: 100.0
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        # Base model (no polytope, no defense, no CBF - original model only)
+        # base_model:
+        #   base_exp_ident_suffix: "base_model"
+        #   polytope_model_path: ""  # Empty string means use base model without polytope
+        # defense_smoothllm:
+        #   base_exp_ident_suffix: "defense_smoothllm"
+        #   defense:
+        #     use: true
+        #     method: "smoothllm"
+        # ActAdd (Activation Addition) baseline - steer toward safety with x + α*r
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   steering_vector:
+        #     use: true
+        #     method: "actadd"
+        #     alpha: 1.0
+        # DirAblate (Directional Ablation) baseline - project out harmful direction
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   steering_vector:
+        #     use: true
+        #     method: "dirablate"
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          steering_vector:
+            use: true
+            method: "actadd"
+            alpha: 1.0
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          steering_vector:
+            use: true
+            method: "dirablate"
+        circuit_breaker:
+          base_exp_ident_suffix: "circuit_breaker"
+          num_phi: [0]
+          circuit_breaker:
+            use: true
+            training_mode: "circuit_breaker"
+      generation_seed: [42, 43, 44]
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+      # evaluation_methods: ["GCG"]
+    polytope_training:
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/qwen_1.5b"
+      seed: [42, 43, 44]
+      dataset:
+        hidden_states_path: "hs_data/harmbench/qwen_1.5b"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      margin: 30.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        # Mode 1: SAP mode - nonlinear feature extractor without neural phi
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 30.0
+          unsafe_margin: 30.0
+          unsafe_weight: 4.0
+        # Mode 2: CBF with nonlinear phi (neural network) - topk strategy
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 4.0 # 5.0 -> model utility dropped too much
+          # neural_phi_final_activation: "tanh"
+        # Mode 3: CBF-QP (no top-k / merge) reusing the nonlinear CBF weights.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"
+        # Mode 5: Nonlinear CBF with merge strategy (reuse weights from cbf_topk_nonlinear)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"  # Reuse weights from this mode
+        # --- CBF Size Ablation (smooth parameter ladder to 23.64M) ---
+        # S: [128] with phi sweep for K-scaling
+        cbf_topk_nonlinear_s:
+          base_exp_ident_suffix: "cbf_topk_nonlinear_s"
+          num_phi: [4]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [128]
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 0.3
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 4.0
+        # cbf_qp_nonlinear_s:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_s"
+        #   num_phi: [4, 12, 20, 28, 36, 44, 52, 60]
+        #   reuse_weights_from: "cbf_topk_nonlinear_s"
+        # cbf_merge_nonlinear_s:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_s"
+        #   num_phi: [4, 12, 20, 28, 36, 44, 52, 60]
+        #   reuse_weights_from: "cbf_topk_nonlinear_s"
+
+        # # P1024: [1024]
+        # cbf_topk_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_p1024"
+        #   num_phi: [4]
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [1024]
+        #   lambda_constraint: 0.0
+        #   desc_loss_weight: 0.0
+        #   control_radius: 10000.0
+        #   cbf_k: 1.0
+        #   safe_margin: 0.0
+        #   unsafe_margin: 0.5
+        #   unsafe_weight: 4.0
+        # cbf_qp_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_p1024"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_p1024"
+        # cbf_merge_nonlinear_p1024:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_p1024"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_p1024"
+
+        # # P2048: [2048]
+        # cbf_topk_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_p2048"
+        #   num_phi: [4]
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [2048]
+        #   lambda_constraint: 0.0
+        #   desc_loss_weight: 0.0
+        #   control_radius: 10000.0
+        #   cbf_k: 1.0
+        #   safe_margin: 0.0
+        #   unsafe_margin: 0.5
+        #   unsafe_weight: 4.0
+        # cbf_qp_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_p2048"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_p2048"
+        # cbf_merge_nonlinear_p2048:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_p2048"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_p2048"
+
+        # # H1536: [1536, 768, 384, 192]
+        # cbf_topk_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_h1536"
+        #   num_phi: [4]
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [1536, 768, 384, 192]
+        #   lambda_constraint: 0.0
+        #   desc_loss_weight: 0.0
+        #   control_radius: 10000.0
+        #   cbf_k: 1.0
+        #   safe_margin: 0.0
+        #   unsafe_margin: 0.5
+        #   unsafe_weight: 4.0
+        # cbf_qp_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_h1536"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_h1536"
+        # cbf_merge_nonlinear_h1536:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_h1536"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_h1536"
+
+        # # H1792: [1792, 896, 448, 224]
+        # cbf_topk_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear_h1792"
+        #   num_phi: [4]
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [1792, 896, 448, 224]
+        #   lambda_constraint: 0.0
+        #   desc_loss_weight: 0.0
+        #   control_radius: 10000.0
+        #   cbf_k: 1.0
+        #   safe_margin: 0.0
+        #   unsafe_margin: 0.5
+        #   unsafe_weight: 4.0
+        # cbf_qp_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear_h1792"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_h1792"
+        # cbf_merge_nonlinear_h1792:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear_h1792"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear_h1792"
+
+        # # L: [2048, 1024, 512, 256] (~23.64M)
+        # cbf_topk_nonlinear:
+        #   base_exp_ident_suffix: "cbf_topk_nonlinear"
+        #   num_phi: [4]
+        #   use_neural_phi: true
+        #   use_nonlinear: false
+        #   neural_phi_architecture: separate_networks
+        #   neural_phi_hidden_dims: [2048, 1024, 512, 256]
+        #   lambda_constraint: 0.0
+        #   desc_loss_weight: 0.0
+        #   control_radius: 10000.0
+        #   cbf_k: 1.0
+        #   safe_margin: 0.0
+        #   unsafe_margin: 0.5
+        #   unsafe_weight: 4.0
+        # cbf_qp_nonlinear:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear"
+        # cbf_merge_nonlinear:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear"
+        #   num_phi: [4]
+        #   reuse_weights_from: "cbf_topk_nonlinear"
+        # ActAdd (Activation Addition) baseline
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   model_type: "steering_vector"
+        #   steering_method: "actadd"
+        #   steering_alpha: 1.0
+        #   steering_normalize: false
+        # # DirAblate (Directional Ablation) baseline
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   model_type: "steering_vector"
+        #   steering_method: "dirablate"
+        #   steering_normalize: false
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          model_type: "steering_vector"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          model_type: "steering_vector"
+          steering_method: "dirablate"
+          steering_normalize: false
+        circuit_breaker:
+          model_type: "circuit_breaker"
+          base_exp_ident_suffix: "circuit_breaker"
+          base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench_cb/qwen_1.5b"
+          behavior_dataset: "data/behavior_datasets/harmbench_behaviors_text_val.csv"
+          target_layers: "20"
+          transform_layers: "-1"
+          lorra_alpha: 10.0
+          lora_r: 16
+          lora_alpha: 16
+          lora_dropout: 0.05
+          learning_rate: 1e-4
+          weight_decay: 0.0
+          max_steps: 150
+          per_device_train_batch_size: 8
+          gradient_accumulation_steps: 1
+          schedule_steps: 300
+          max_length: 1024
+          bf16: true
+          gradient_checkpointing: true
+          val_fraction: 0.1
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+  - name: "gemma_2_9b"
+    path: "google/gemma-2-9b-it"
+    hidden_state_layer: 20
+    steering:
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: false
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 2
+            constraint_mode: "topk"
+        # Mode: CBF solved via QP.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 4
+            constraint_mode: "qp"
+        # Mode 4: Nonlinear CBF with merge strategy (only mode where kappa is used)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            kappa: 100.0          # kappa only matters when constraint_mode == "merge"
+            control_radius: 100000.0
+            constraint_mode: "merge"
+        # Base model (no polytope, no defense, no CBF - original model only)
+        base_model:
+          base_exp_ident_suffix: "base_model"
+          polytope_model_path: ""  # Empty string means use base model without polytope
+        defense_smoothllm:
+          base_exp_ident_suffix: "defense_smoothllm"
+          defense:
+            use: true
+            method: "smoothllm"
+        # ActAdd (Activation Addition) baseline - steer toward safety with x + α*r
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          steering_vector:
+            use: true
+            method: "actadd"
+            alpha: 1.0
+        # DirAblate (Directional Ablation) baseline - project out harmful direction
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          steering_vector:
+            use: true
+            method: "dirablate"
+        cast_actadd:
+          base_exp_ident_suffix: "cast_actadd"
+          num_phi: [4]
+          cbf:
+            use: false
+        cast_dirablate:
+          base_exp_ident_suffix: "cast_dirablate"
+          num_phi: [4]
+          cbf:
+            use: false
+        # circuit_breaker:
+        #   base_exp_ident_suffix: "circuit_breaker"
+        #   num_phi: [0]
+        #   circuit_breaker:
+        #     use: true
+        #     training_mode: "circuit_breaker"
+        circuit_breaker:
+          base_exp_ident_suffix: "circuit_breaker"
+          num_phi: [0]
+          circuit_breaker:
+            use: true
+            training_mode: "circuit_breaker"
+      generation_seed: [42, 43, 44]
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+    polytope_training:
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/gemma_2_9b"
+      dataset:
+        hidden_states_path: "hs_data/harmbench/gemma_2_9b"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      margin: 30.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        # Mode 1: SAP mode - nonlinear feature extractor without neural phi
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 30.0
+          unsafe_margin: 30.0
+          unsafe_weight: 4.0
+        # # Mode 2: CBF with nonlinear phi (neural network) - topk strategy
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 5.0
+        #   # neural_phi_final_activation: "tanh"
+        # # Mode 3: CBF-QP (no top-k / merge) reusing the nonlinear CBF weights.
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"
+        # # Mode 5: Nonlinear CBF with merge strategy (reuse weights from cbf_topk_nonlinear)
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]  # Ablation study
+          reuse_weights_from: "cbf_topk_nonlinear"  # Reuse weights from this mode
+        # ActAdd (Activation Addition) baseline
+        actadd:
+          base_exp_ident_suffix: "actadd"
+          model_type: "steering_vector"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+        # DirAblate (Directional Ablation) baseline
+        dirablate:
+          base_exp_ident_suffix: "dirablate"
+          model_type: "steering_vector"
+          steering_method: "dirablate"
+          steering_normalize: false
+        cast_actadd:
+          base_exp_ident_suffix: "cast_actadd"
+          model_type: "conditional_steering_vector"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+          reuse_steering_vector_from: "actadd"
+          steering_method: "actadd"
+          steering_alpha: 1.0
+          steering_normalize: false
+        cast_dirablate:
+          base_exp_ident_suffix: "cast_dirablate"
+          model_type: "conditional_steering_vector"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+          reuse_steering_vector_from: "dirablate"
+          steering_method: "dirablate"
+          steering_alpha: 1.0
+          steering_normalize: false
+        # circuit_breaker:
+        #   model_type: "circuit_breaker"
+        #   base_exp_ident_suffix: "circuit_breaker"
+        #   use_accelerate: true
+        #   base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench_cb/gemma_2_9b"
+        #   target_layers: "10,20"
+        #   transform_layers: "-1"
+        #   lorra_alpha: 20.0
+        #   lora_r: 16
+        #   lora_alpha: 16
+        #   lora_dropout: 0.05
+        #   learning_rate: 3e-4
+        #   weight_decay: 0.0
+        #   max_steps: 150
+        #   per_device_train_batch_size: 8
+        #   gradient_accumulation_steps: 1
+        #   schedule_steps: 1000
+        #   max_length: 1024
+        #   bf16: true
+        #   gradient_checkpointing: true
+        #   val_fraction: 0.1
+        circuit_breaker:
+          model_type: "circuit_breaker"
+          base_exp_ident_suffix: "circuit_breaker"
+          base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench_cb/gemma_2_9b"
+          behavior_dataset: "data/behavior_datasets/harmbench_behaviors_text_val.csv"
+          target_layers: "20"
+          transform_layers: "-1"
+          lorra_alpha: 10.0
+          lora_r: 16
+          lora_alpha: 16
+          lora_dropout: 0.05
+          learning_rate: 1e-4
+          weight_decay: 0.0
+          max_steps: 150
+          per_device_train_batch_size: 8
+          gradient_accumulation_steps: 1
+          schedule_steps: 300
+          max_length: 1024
+          bf16: true
+          gradient_checkpointing: true
+          val_fraction: 0.1
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+  - name: "lfm_1.2b"
+    path: "LiquidAI/LFM2.5-1.2B-Instruct"
+    hidden_state_layer: 12  # LFM has 16 layers total (10 LIV conv + 6 GQA), so ~75% depth
+    steering:
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: false
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]  # Ablation study: test multiple num_phi values
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0         # R: max control magnitude
+            max_constraints: 2
+            constraint_mode: "topk"
+        # Mode: CBF solved via QP.
+        # cbf_qp_nonlinear:
+        #   base_exp_ident_suffix: "cbf_qp_nonlinear"
+        #   num_phi: [4]  # Ablation study
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 1.0
+        #     control_radius: 100000.0         # R: max control magnitude
+        #     max_constraints: 4
+        #     constraint_mode: "qp"
+        # Mode 4: Nonlinear CBF with merge strategy (only mode where kappa is used)
+        # cbf_merge_nonlinear:
+        #   base_exp_ident_suffix: "cbf_merge_nonlinear"
+        #   num_phi: [4]  # Ablation study
+        #   cbf:
+        #     use: true
+        #     mode: "estimated"
+        #     dt: 1.0
+        #     k: 1.0
+        #     kappa: 100.0          # kappa only matters when constraint_mode == "merge"
+        #     control_radius: 100000.0
+        #     constraint_mode: "merge"
+        #     control_radius: 1.0  # Enforce ||u|| <= R for steering magnitude
+        # Base model (no polytope, no defense, no CBF - original model only)
+        # base_model:
+        #   base_exp_ident_suffix: "base_model"
+        #   polytope_model_path: ""  # Empty string means use base model without polytope
+        # defense_smoothllm:
+        #   base_exp_ident_suffix: "defense_smoothllm"
+        #   defense:
+        #     use: true
+        #     method: "smoothllm"
+        # ActAdd (Activation Addition) baseline - steer toward safety with x + α*r
+        # actadd:
+        #   base_exp_ident_suffix: "actadd"
+        #   steering_vector:
+        #     use: true
+        #     method: "actadd"
+        #     alpha: 1.0
+        # DirAblate (Directional Ablation) baseline - project out harmful direction
+        # dirablate:
+        #   base_exp_ident_suffix: "dirablate"
+        #   steering_vector:
+        #     use: true
+        #     method: "dirablate"
+      generation_seed: [1042, 1043, 1044]
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+    polytope_training:
+      seed: [1042, 1043, 1044]
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/lfm_1.2b"
+      dataset:
+        hidden_states_path: "hs_data/harmbench/lfm_1.2b"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      margin: 30.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 30.0
+          unsafe_margin: 30.0
+          unsafe_weight: 4.0
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 5.0
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+  - name: "phi_4"
+    path: "microsoft/phi-4"
+    hidden_state_layer: 20
+    steering:
+      modes:
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]
+          cbf:
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 0.3
+            control_radius: 100000.0
+            max_constraints: 2
+            constraint_mode: "topk"
+      generation_seed: 46
+      evaluation_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+    polytope_training:
+      base_output_dir: "${WORKSPACE_ROOT}/outputs/harmbench/phi_4"
+      dataset:
+        hidden_states_path: "hs_data/harmbench/phi_4"
+      num_epochs: 1
+      learning_rate: 0.01
+      batch_size: 512
+      entropy_weight: 1.0
+      lambda_constraint: 1.0
+      margin: 30.0
+      log_interval: 500
+      phi_l1_weight: 1.0
+      modes:
+        sap:
+          base_exp_ident_suffix: "sap"
+          num_phi: [30]
+          use_neural_phi: false
+          use_nonlinear: true
+          feature_dim: 16384
+          safe_margin: 30.0
+          unsafe_margin: 30.0
+          unsafe_weight: 4.0
+        cbf_topk_nonlinear:
+          base_exp_ident_suffix: "cbf_topk_nonlinear"
+          num_phi: [4]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: separate_networks
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          lambda_constraint: 0.0
+          desc_loss_weight: 0.0
+          control_radius: 10000.0
+          cbf_k: 1.0
+          safe_margin: 0.0
+          unsafe_margin: 0.5
+          unsafe_weight: 5.0
+        cbf_qp_nonlinear:
+          base_exp_ident_suffix: "cbf_qp_nonlinear"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+        cbf_merge_nonlinear:
+          base_exp_ident_suffix: "cbf_merge_nonlinear"
+          num_phi: [4]
+          reuse_weights_from: "cbf_topk_nonlinear"
+    attack_methods: ["AutoDAN", "HumanJailbreaks", "PEZ", "GBDA", "DirectRequest", "AutoPrompt", "GCG", "UAT", "PAP-top5"]
+
+# Slurm configuration
+slurm:
+  partition: "gpu"
+  time_limit: "24:00:00"
+  job_timeout_minutes: 240  # How long to wait for jobs to complete
+  check_interval_seconds: 60  # How often to check job status
+
+# Attack generation settings (Stage 1 - Complete HarmBench Pipeline)
+# Generate test cases for all behaviors (400 = test + val), then filter by dataset for training/evaluation
+attack_generation:
+  behavior_dataset: "./data/behavior_datasets/harmbench_behaviors_text_all.csv"  # Generate test cases for all behaviors
+  execution_mode: "local_parallel"  # Mode for run_pipeline.py
+  overwrite: false  # If true, overwrite existing test cases. If false, skip existing test cases.
+  reverse: false # whether to process behaviors in reverse order (useful for multi-node generation)
+
+# Hidden state extraction settings
+hidden_state_extraction:
+  layer_number: 20
+  part_size: null
+  max_new_tokens: 128
+  execution_mode: "local_parallel"  # or "slurm" - use local for testing
+  training_behavior_dataset: "./data/behavior_datasets/harmbench_behaviors_text_test.csv"  # Filter behaviors for training (test set)
+  overwrite: true
+
+# Polytope training configuration
+polytope_training:
+  seed: 42
+  num_phi: 30
+  learning_rate: 0.01
+  entropy_weight: 1.0
+  unsafe_weight: 2.0
+  margin: 1.0
+  execution_mode: "local_parallel"  # "local", "local_parallel" (auto-detects all GPUs, 1 job per GPU), or "slurm"
+  dataset:
+    use_category_data: false
+    
+# Steering evaluation configuration
+steering_evaluation:
+  part_size: 80
+  execution_mode: "local_parallel"  # "local", "local_parallel" (multi-GPU by parts), or "slurm"
+  # evaluation_test_case_model is no longer needed since we generate test cases for all behaviors in one run
+  # The evaluation will use all test cases from the main model_name
+  # vLLM memory settings (for classifier model loading)
+  vllm_gpu_memory_utilization: 0.7  # Use 70% of GPU memory (default: 0.9)
+  vllm_enforce_eager: true  # Disable CUDA graphs to save memory (default: false)
+  vllm_max_num_seqs: 64  # Max concurrent sequences (default: 256)
+
+# Evaluation configuration
+evaluation:
+  cls_path: "cais/HarmBench-Llama-2-13b-cls"
+  behavior_dataset: "./data/behavior_datasets/harmbench_behaviors_text_val.csv"
+  # NOTE: This is only used for metadata. Actual test cases come from Stage 1.
+  include_advbench_metric: true
+
+# Logging configuration
+logging:
+  level: "INFO"
+  log_dir: "./logs/harmbench_pipeline"

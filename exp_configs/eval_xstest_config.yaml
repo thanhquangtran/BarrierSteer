@@ -1,0 +1,84 @@
+defaults:
+  - override hydra/launcher: submitit_slurm
+
+dataset: xstest
+exp_ident: eval_xstest
+
+model_path: null
+custom_adapter_path: null
+
+use_safe_rep_model: false
+polytope_weight_path: null
+projection: false
+use_backup_response: false
+steer_layer: 20
+lambda_weight: 1.0
+steer_first_n_tokens: 20
+safe_violation_weight: 0.0001
+steering_method: null
+
+use_cbf: false
+cbf_mode: "estimated"
+cbf_dt: 1.0
+cbf_k: 1.0
+cbf_w: 1.0
+cbf_p: 10.0
+cbf_kappa: 10.0
+cbf_max_constraints: 2
+cbf_constraint_mode: "topk"
+
+use_reft_r1: false
+reft_r1_vector_path: null
+reft_r1_target_layer: 20
+reft_r1_top_k: 8
+reft_r1_beta: 1.0
+
+use_defense: false
+defense_method: backtranslation
+
+xstest_csv_path: external_code/xstest/xstest_prompts.csv
+xstest_split: safe_only
+xstest_output_csv: null
+xstest_summary_path: null
+
+judge_backend: strmatch
+judge_model: openai/gpt-4o-mini
+judge_api_base: https://openrouter.ai/api/v1
+judge_api_key_env: OPENROUTER_API_KEY
+judge_timeout_secs: 60
+judge_max_retries: 5
+judge_batch_size: 4
+judge_max_workers: 4
+judge_temperature: 0.0
+judge_max_tokens: 8
+judge_app_name: SafeLLM
+judge_http_referer: null
+
+seed: 42
+batch_size: 8
+limit: null
+max_input_length: 2048
+max_new_tokens: 256
+do_sample: false
+temperature: 0.7
+top_p: 0.95
+device_map: auto
+
+hydra:
+  run:
+    dir: outputs/xstest/logs/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  job:
+    chdir: false
+  sweep:
+    dir: multirun/xstest/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  launcher:
+    submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+    timeout_min: 1440
+    cpus_per_task: 8
+    tasks_per_node: 1
+    nodes: 1
+    name: ${exp_ident}
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    additional_parameters: {"gpus": "a100_80gb:1"}
+    setup:
+      - '#SBATCH --requeue'

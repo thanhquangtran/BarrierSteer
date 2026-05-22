@@ -1,0 +1,30 @@
+# Adaptive Attack Evaluation Config
+# Usage: python -m barriersteer_pipeline.evaluation.adaptive_attack_eval
+
+# ---- Model ----
+# For SafeRepModel (steered), set harmbench_model_name to a key from models.yaml:
+harmbench_model_name: safe_gemma_2_9b
+
+# For base model comparison, use:
+# harmbench_model_name: null
+# model_path: google/gemma-2-9b-it
+
+# ---- Judge ----
+judge_model: gpt-4o-mini
+
+# ---- Behaviors ----
+# behaviors_csv: null  # defaults to third_party/llm-adaptive-attacks/harmful_behaviors/harmful_behaviors_pair.csv
+n_behaviors: null  # null = all 50; set to 5 for quick test
+start_idx: 0
+
+# ---- Attack hyperparameters ----
+prompt_template: refined_best
+n_iterations: 5000
+n_tokens_adv: 25
+n_tokens_change_max: 4
+target_max_n_tokens: 150
+seed: 1
+debug: false
+
+# ---- Output ----
+# output_dir: null  # defaults to outputs/adaptive_attack/<model_name>

@@ -1,0 +1,83 @@
+defaults:
+  - override hydra/launcher: submitit_slurm
+
+# Dataset and experiment identifier
+dataset: lm_harness
+exp_ident: eval
+
+# Model configuration
+model_path: None
+custom_adapter_path: null
+
+# SafeRepModel configuration
+use_safe_rep_model: false
+polytope_weight_path: None
+projection: False
+use_backup_response: False
+steer_layer: 20
+lambda_weight: 1.0
+steer_first_n_tokens: 20
+safe_violation_weight: 0.0001
+steering_method: null  # Options: actadd, dirablate, or null (auto-detect)
+
+# CBF (Control Barrier Function) configuration
+use_cbf: false
+cbf_mode: "estimated"  # Options: "estimated" or "learned"
+cbf_dt: 1.0
+cbf_k: 1.0
+cbf_w: 1.0
+cbf_p: 10.0
+cbf_kappa: 10.0
+cbf_max_constraints: 2
+cbf_constraint_mode: "topk"  # Options: "topk", "qp", "merge"
+
+# Defense configuration
+use_defense: false
+defense_method: backtranslation  # Options: backtranslation, response_check, smoothllm, icl, self_reminder, paraphrase_prompt, semantic_smoothing
+
+# ReFT-r1 inference hook configuration
+use_reft_r1: false
+reft_r1_vector_path: null
+reft_r1_target_layer: 20
+reft_r1_top_k: 8
+reft_r1_beta: 1.0
+
+# LM Evaluation Harness configuration
+# Standard benchmark suite: ARC, MMLU, WINOGRANDE, GSM8K, TRUTHFULQA, HELLASWAG
+lm_harness_tasks: 
+  - hellaswag          # HellaSwag: Commonsense reasoning (Zellers et al., 2019)
+  - arc_easy           # ARC-Easy: Science questions (Clark et al., 2018)
+  - arc_challenge      # ARC-Challenge: Harder science questions (Clark et al., 2018)
+  - winogrande         # WinoGrande: Coreference resolution (Sakaguchi et al., 2021)
+  - mmlu               # MMLU: Multitask language understanding (Hendrycks et al., 2021)
+  - gsm8k              # GSM8K: Grade school math (Cobbe et al., 2021)
+  - truthfulqa_mc2     # TruthfulQA: Truthfulness (Lin et al., 2022)
+num_fewshot: 0         # Can be changed per task if needed
+batch_size: 8
+device_map: auto
+lm_harness_limit: null  # Set to integer for quick testing (e.g., 10)
+lm_harness_output_path: null  # Auto-generated if null
+
+# Model parameters
+max_input_length: 2048
+max_new_tokens: 256
+
+# Hydra configuration - logs go to timestamped dirs, results stay in project root
+hydra:
+  run:
+    dir: outputs/lm_harness/logs/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  job:
+    chdir: false  # Don't change working directory - keeps output paths predictable
+  sweep:
+    dir: multirun/lm_harness/${now:%Y-%m-%d}/${exp_ident}-${now:%H-%M-%S}
+  launcher:
+    submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+    timeout_min: 1440
+    cpus_per_task: 8
+    tasks_per_node: 1
+    nodes: 1
+    name: ${exp_ident}
+    _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+    additional_parameters: {"gpus": "a100_80gb:1"}
+    setup:
+      - '#SBATCH --requeue'

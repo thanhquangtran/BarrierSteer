@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.3.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-json
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        args: [--check, --line-length=79, src/]
+        language_version: python3
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile, black, --check-only, --line-length, '79', src/]
+        language_version: python3
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: [--ignore, 'F841,W503,E203,E501', src/]
+        language_version: python3
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: e5ea667
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports]
+        language_version: python3

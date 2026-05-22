@@ -1,0 +1,239 @@
+
+# BeaverTails Pipeline Configuration
+pipeline:
+  name: "harmbench_beavertails"
+  output_dir: "outputs/beavertails"
+  harmbench_path: "${WORKSPACE_ROOT}/HarmBench"
+  barriersteer_path: "${WORKSPACE_ROOT}"
+  # HarmBench run_pipeline.py settings
+  base_save_dir: "results_beavertails"
+  base_log_dir: "./slurm_logs"
+  cls_path: "cais/HarmBench-Llama-2-13b-cls"
+  starting_batch_size: 128
+  vllm_gpu_memory_utilization: 0.7
+  vllm_enforce_eager: true
+  vllm_max_num_seqs: 64
+
+# Slurm Configuration (Required by pipeline)
+slurm:
+  partition: "hopper-cpu"
+  job_timeout_minutes: 240
+  check_interval_seconds: 60
+
+# Attack Generation (Stage 1) - Override behaviors
+attack_generation:
+  behavior_dataset: "data/behavior_datasets/harmbench_behaviors_beavertails_val.csv"
+  overwrite: true
+  execution_mode: "local"
+
+evaluation:
+  behavior_dataset: "data/behavior_datasets/harmbench_behaviors_beavertails_val.csv"
+
+# Hidden State Extraction (Stage 2)
+hidden_state_extraction:
+  execution_mode: "local"
+  training_behavior_dataset: "data/behavior_datasets/harmbench_behaviors_beavertails_train.csv"
+  # Split output into per-category train files
+  split_by_category: true
+  behaviors_path: "data/behavior_datasets/harmbench_behaviors_beavertails_train.csv"
+  category_column: "SemanticCategory"
+
+# Global Polytope Training Configuration
+polytope_training:
+  execution_mode: "local_parallel"
+  per_category_training: false
+  dataset:
+    use_category_data: true
+    # attack_methods: ["DirectRequest"] 
+    num_epochs: 10
+    batch_size: 32
+    num_phi: 20
+  # Standard Hyperparams
+  feature_dim: 16384
+  entropy_weight: 1.0
+  lambda_constraint: 1.0
+  margin: 60.0
+  unsafe_weight: 2.0
+  phi_l1_weight: 0.0001
+  use_nonlinear: true
+  learning_rate: 0.01
+  seed: 42
+  
+
+
+# Steering Evaluation Configuration
+steering_evaluation:
+  execution_mode: "local_parallel"
+  part_size: 100
+
+# Models to test
+models:
+  - name: "qwen_1.5b"
+    path: "Qwen/Qwen2-1.5B-Instruct"
+    hidden_state_layer: 20
+    polytope_training:
+      base_output_dir: "outputs/beavertails/qwen_1.5b/"
+      dataset:
+        hidden_states_path: "hs_data/beavertails/qwen_1.5b"
+      modes:
+        cbf_per_category:
+          base_exp_ident_suffix: "cbf_per_category"
+          num_phi: [1]
+          use_neural_phi: true
+          use_nonlinear: false
+          neural_phi_architecture: "separate_networks"
+          neural_phi_hidden_dims: [2048, 1024, 512, 256]
+          neural_phi_final_activation: null
+          f1_weight: 0.0
+          lambda_constraint: 0.0  # f_l1_weight=0: features=hidden_states (fixed data, no effect)
+          desc_loss_weight: 0.0      # Weight for L_desc term
+          control_radius: 10000.0         # R: max control magnitude
+          cbf_k: 1.0                  # k: CBF safety rate parameter
+          safe_margin: 0.0    # Target: b(x) >= safe_margin
+          unsafe_margin: 0.5  # Target: b(x) <= -unsafe_margin
+          unsafe_weight: 5.0
+          per_category_training: true
+          use_category_data: true
+          category_types_to_train:
+            - "animal_abuse"
+            - "child_abuse"
+            - "controversial_topics,politics"
+            - "discrimination,stereotype,injustice"
+            - "drug_abuse,weapons,banned_substance"
+            - "financial_crime,property_crime,theft"
+            - "hate_speech,offensive_language"
+            - "misinformation_regarding_ethics,laws_and_safety"
+            - "non_violent_unethical_behavior"
+            - "privacy_violation"
+            - "self_harm"
+            - "sexually_explicit,adult_content"
+            - "terrorism,organized_crime"
+            - "violence,aiding_and_abetting,incitement"
+    hidden_state_extraction:
+      hs_save_dir: "hs_data/beavertails/qwen_1.5b"
+      margin: 30.0
+    attack_methods: ["DirectRequest"]
+    steering:
+      evaluation_methods: ["DirectRequest"]
+      
+      # Shared CBF Configuration
+      cbf:
+        use: true
+        mode: "estimated"
+        dt: 1.0
+        k: 1.0
+        kappa: 10.0
+        max_constraints: 2
+        constraint_mode: "topk"
+        control_radius: 10000.0
+
+      modes:
+        # base_model:
+        #   base_exp_ident_suffix: "base_model"
+        #   polytope_model_path: ""
+        #   cbf: null
+        
+        cbf_multi:
+          base_exp_ident_suffix: "cbf_multi"
+          num_phi: [1]
+          polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001"
+          cbf:
+            # Shared settings
+            use: true
+            mode: "estimated"
+            dt: 1.0
+            k: 1.0
+            kappa: 10.0
+            max_constraints: 2
+            constraint_mode: "topk"
+            control_radius: 10000.0
+            multi_cbf:
+              enabled: true
+              training_mode: "cbf_per_category"
+              models_dir: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001"
+              load_attacks:
+               - "animal_abuse"
+               - "child_abuse"
+               - "controversial_topics,politics"
+               - "discrimination,stereotype,injustice"
+               - "drug_abuse,weapons,banned_substance"
+               - "financial_crime,property_crime,theft"
+               - "hate_speech,offensive_language"
+               - "misinformation_regarding_ethics,laws_and_safety"
+               - "non_violent_unethical_behavior"
+               - "privacy_violation"
+               - "self_harm"
+               - "sexually_explicit,adult_content"
+               - "terrorism,organized_crime"
+               - "violence,aiding_and_abetting,incitement"
+
+        # Per-Category Individual Modes
+        cbf_animal_abuse:
+           base_exp_ident_suffix: "cbf_animal_abuse"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_animal_abuse.pth"
+        
+        cbf_child_abuse:
+           base_exp_ident_suffix: "cbf_child_abuse"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_child_abuse.pth"
+        
+        cbf_politics:
+           base_exp_ident_suffix: "cbf_politics"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_controversial_topics,politics.pth"
+
+        cbf_discrimination:
+           base_exp_ident_suffix: "cbf_discrimination"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_discrimination,stereotype,injustice.pth"
+
+        cbf_drugs_weapons:
+           base_exp_ident_suffix: "cbf_drugs_weapons"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_drug_abuse,weapons,banned_substance.pth"
+
+        cbf_financial_crime:
+           base_exp_ident_suffix: "cbf_financial_crime"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_financial_crime,property_crime,theft.pth"
+
+        cbf_hate_speech:
+           base_exp_ident_suffix: "cbf_hate_speech"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_hate_speech,offensive_language.pth"
+
+        cbf_misinfo:
+           base_exp_ident_suffix: "cbf_misinfo"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_misinformation_regarding_ethics,laws_and_safety.pth"
+
+        cbf_unethical:
+           base_exp_ident_suffix: "cbf_unethical"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_non_violent_unethical_behavior.pth"
+
+        cbf_privacy:
+           base_exp_ident_suffix: "cbf_privacy"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_privacy_violation.pth"
+
+        cbf_self_harm:
+           base_exp_ident_suffix: "cbf_self_harm"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_self_harm.pth"
+
+        cbf_sexual:
+           base_exp_ident_suffix: "cbf_sexual"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_sexually_explicit,adult_content.pth"
+
+        cbf_terrorism:
+           base_exp_ident_suffix: "cbf_terrorism"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_terrorism,organized_crime.pth"
+
+        cbf_violence:
+           base_exp_ident_suffix: "cbf_violence"
+           num_phi: [1]
+           polytope_model_path: "outputs/beavertails/qwen_1.5b/cbf_per_category_phi001/weight_42_violence,aiding_and_abetting,incitement.pth"
